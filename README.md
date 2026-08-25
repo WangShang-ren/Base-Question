@@ -1,1 +1,97 @@
 # Base-Question
+HPCG Benchmark 3.1 复现报告
+项目概述
+软件名称: HPCG (High Performance Conjugate Gradient) Benchmark
+版本: 3.1
+发布日期: 2019年3月28日
+运行环境: WSL2 (Windows Subsystem for Linux 2)
+目标: 验证 HPCG 在分布式多进程环境下的正确性、数值稳定性及基准性能。
+硬件与软件配置
+配置项   详情
+MPI 实现   OpenMPI (mpirun.openmpi)
+
+并行规模   8 个 MPI 进程 (-np 8)
+
+线程设置   每进程 16 线程 (OpenMP)
+
+通信绑定   --bind-to none (无CPU核心绑定)
+
+网络层   PML: ob1, BTL: tcp,self (TCP/IP 回环/虚拟网卡通信)
+
+问题规模   128 times 128 times 128 (全局网格)
+
+时间步数   20 steps
+
+处理器拓扑   2 times 2 times 2 (npx=2, npy=2, npz=2)
+
+复现过程与关键步骤
+
+3.1 初始遇到的问题：断言失败 (Assertion Failed)
+在初次尝试运行时，由于参数传递错误，导致程序崩溃。
+
+错误命令: ... xhpcg 20
+错误现象: 所有 8 个进程同时报 SIGABRT 信号。
+错误日志:
+        xhpcg: /home/user/hpcg/src/GenerateCoarseProblem.cpp:50: void GenerateCoarseProblem(const SparseMatrix&): Assertion 'nxf%2==0' failed.
+    
+原因分析:
+    HPCG 命令行参数格式为 nx ny nz ntime。
+    仅传入 20 被解析为 nx=20，而 ny 和 nz 使用默认值。
+    在 8 进程分解下，局部网格维度变为奇数，不满足多重网格（Multigrid）算法对偶数维度的要求，触发断言失败。
+解决方案: 显式指定完整的问题规模和迭代次数。
+
+3.2 最终成功运行的命令
+mpirun.openmpi --bind-to none --mca pml ob1 --mca btl tcp,self -np 8 (pwd)/xhpcg 64 64 64 20
+
+参数解释:
+    64 64 64: 每个进程分配的局部网格大小为 64 times 64 times 64 (总全局 128^3)。
+    20: 执行 20 个时间步长。
+    注意: 此处实际输入文件可能强制覆盖了全局规模为 128^3，但本地分配逻辑需保证整除性和偶数性，此配置成功避免了断言错误。
+
+结果分析
+
+4.1 数值有效性验证 (Validity Check)
+HPCG 内置了严格的验证测试，本次运行全部通过：
+验证项   结果   说明
+Spectral Convergence   PASSED   谱收敛测试通过。未预条件迭代最大11次，预条件迭代最大2次。
+
+Symmetry Departure   PASSED   矩阵对称性偏差极小。SpMV: 5.896 times 10^{-9}MG: 1.684 times 10^{-9}
+
+Iteration Count   PASSED   迭代次数符合预期（参考值50次，优化后50次）。
+
+Reproducibility   PASSED   可重复性测试通过，缩放残差均值 9.865 times 10^{-7}。
+
+结论: HPCG result is VALID。计算结果是数学上正确的。
+
+4.2 性能数据分析 (Performance Metrics)
+
+由于使用的是Reference Kernel (参考内核)，未链接 MKL/OpenBLAS 等高性能库，性能较低，主要用于功能验证。
+指标   数值   备注
+Total Time   64.8501 sec   远小于官方认证的 1800 秒要求
+
+GFLOP/s (Raw Total)   0.594474   极低，因使用串行/低效并行内核
+
+GB/s (Read+Write)   4.50961   内存带宽利用率一般
+
+主要耗时组件   MG (40.5s), DDOT (12.7s)   多级网格求解器和点积操作占主导
+性能警告:
+日志明确指出：
+Performance results are severely suboptimal
+Official results execution time (sec) must be at least=1800
+这意味着当前结果仅适用于代码逻辑验证，不适用于高性能计算排名或正式的性能评估报告。
+资源消耗统计
+总方程数: 2,097,152 (128^3)
+非零元素数: 55,742,968
+内存占用: 约 1.5 GB
+    线性系统 + CG: 1.32 GB
+    粗网格层级 1: 0.158 GB
+    粗网格层级 2: 0.020 GB
+    粗网格层级 3: 0.002 GB
+多级网格结构: 3 层粗网格
+总结与结论
+复现成功: HPCG 3.1 在 WSL2 环境下，使用 8 进程 MPI 并行计算成功运行并输出有效结果。
+问题解决: 解决了初期因参数错误导致的 Assertion 'nxf%2==0' failed 崩溃问题，确认了 128^3$ 规模在 8 进程下的正确分解方式。
+结果性质: 获得的是 Valid (有效) 的基准测试结果，而非 Optimized (优化) 的高性能结果。
+后续建议:
+    若需提升性能分数，需重新编译 HPCG 并链接 Intel MKL 或 OpenBLAS。
+    若需进行官方认证，需在原生 Linux 环境中运行至少 1800 秒，并使用优化内核。
