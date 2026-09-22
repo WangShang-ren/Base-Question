@@ -5,8 +5,11 @@ HPCG Benchmark 3.1 复现报告
 项目 内容
 软件名称 HPCG（High Performance Conjugate Gradient）Benchmark
 版本 3.1
+
 发布日期 2019年3月28日
+
 运行环境 WSL2（Windows Subsystem for Linux 2）
+
 目标 验证 HPCG 在分布式多进程环境下的正确性、数值稳定性及基准性能
 
 2. 硬件与软件配置
@@ -39,6 +42,7 @@ xhpcg: /home/user/hpcg/src/GenerateCoarseProblem.cpp:50: void GenerateCoarseProb
 
 · HPCG 命令行参数格式为 nx ny nz ntime。
 · 仅传入 20 被解析为 nx=20，而 ny 和 nz 使用默认值。
+
 · 在 8 进程分解下，局部网格维度变为奇数，不满足多重网格（Multigrid）算法对偶数维度的要求，触发断言失败。
 
 解决方案：显式指定完整的问题规模和迭代次数。
@@ -63,7 +67,9 @@ HPCG 内置了严格的验证测试，本次运行全部通过：
 
 验证项 结果 说明
 Spectral Convergence PASSED 谱收敛测试通过。未预条件迭代最大 11 次，预条件迭代最大 2 次。
+
 Symmetry Departure PASSED 矩阵对称性偏差极小。SpMV: 5.896 \times 10^{-9}；MG: 1.684 \times 10^{-9}
+
 Iteration Count PASSED 迭代次数符合预期（参考值 50 次，优化后 50 次）。
 Reproducibility PASSED 可重复性测试通过，缩放残差均值 9.865 \times 10^{-7}。
 
@@ -75,7 +81,9 @@ Reproducibility PASSED 可重复性测试通过，缩放残差均值 9.865 \time
 
 指标 数值 备注
 Total Time 64.8501 sec 远小于官方认证的 1800 秒要求
+
 GFLOP/s（Raw Total） 0.594474 极低，因使用串行/低效并行内核
+
 GB/s（Read+Write） 4.50961 内存带宽利用率一般
 主要耗时组件 MG（40.5s），DDOT（12.7s） 多级网格求解器和点积操作占主导
 
@@ -108,6 +116,7 @@ Official results execution time (sec) must be at least=1800
 7. 后续建议
 
 · 若需提升性能分数，需重新编译 HPCG 并链接 Intel MKL 或 OpenBLAS。
+
 · 若需进行官方认证，需在原生 Linux 环境中运行至少 1800 秒，并使用优化内核。
 
 8. 附录
